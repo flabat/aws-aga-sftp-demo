@@ -1,6 +1,6 @@
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
 import { Ec2Action } from 'aws-cdk-lib/aws-cloudwatch-actions';
-import { AmazonLinuxGeneration, AmazonLinuxImage, CfnEIP, Instance, InstanceClass, InstanceSize, InstanceType, Peer, Port, SecurityGroup, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { AmazonLinuxGeneration, AmazonLinuxImage, BlockDeviceVolume, CfnEIP, Instance, InstanceClass, InstanceSize, InstanceType, Peer, Port, SecurityGroup, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { NetworkLoadBalancer, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { Accelerator } from 'aws-cdk-lib/aws-globalaccelerator';
 import { InstanceEndpoint, NetworkLoadBalancerEndpoint } from 'aws-cdk-lib/aws-globalaccelerator-endpoints';
@@ -56,7 +56,14 @@ export class AwsAgaSftpDemoStack extends Stack {
       machineImage: new AmazonLinuxImage({generation: AmazonLinuxGeneration.AMAZON_LINUX_2}),
       vpc: vpc,
       role: sftp_server_role,
-      securityGroup: sftp_server_sg
+      securityGroup: sftp_server_sg,
+      blockDevices: [{
+        deviceName: '/dev/xvda',
+        volume: BlockDeviceVolume.ebs(1000, {
+          encrypted: true,
+        }),
+      }],
+      
     })
     
     sftp_server.userData.addCommands(
@@ -80,6 +87,7 @@ export class AwsAgaSftpDemoStack extends Stack {
       '\n',
     );
     
+  
     const sftp_server_ip_param = new StringParameter(this, 'sftp_server_ip_param', {
       stringValue: sftp_server.instancePublicIp,
       parameterName: 'sftp_server_ip'
@@ -135,11 +143,6 @@ export class AwsAgaSftpDemoStackAGA extends Stack {
       securityGroup: sftp_gw_sg
     });
     
-    const sftp_gw_eip = new CfnEIP(this, 'GWEIP', {
-      domain: 'vpc',
-      instanceId: sftp_gw.instanceId,
-    });
-
     sftp_gw.userData.addCommands(
       'yum update -y',
       'yum install haproxy -y',
@@ -152,7 +155,8 @@ export class AwsAgaSftpDemoStackAGA extends Stack {
       'echo "    balance roundrobin" >> /etc/haproxy/haproxy.cfg',
       'echo "    server sftp01 $(aws ssm get-parameter --name sftp_server_ip --region us-east-2 --output text --query Parameter.Value):22" >> /etc/haproxy/haproxy.cfg',
       'printf "\n" >> /etc/haproxy/haproxy.cfg',
-      'systemctl restart haproxy',
+      'systemctl enable haproxy',
+      'systemctl start haproxy',
       'reboot',
     )
 
